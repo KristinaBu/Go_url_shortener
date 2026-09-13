@@ -2,20 +2,68 @@ package bench
 
 import (
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/KristinaBu/Go_url_shortener/internal/cache"
+	"github.com/KristinaBu/Go_url_shortener/internal/handler"
+	"github.com/KristinaBu/Go_url_shortener/internal/repository"
+	"github.com/KristinaBu/Go_url_shortener/internal/service"
+	"github.com/KristinaBu/Go_url_shortener/pkg/generator"
 )
 
-const (
-	benchURL       = "http://localhost:8080/links/NSILa0pd7S"
-	requestTimeout = 5 * time.Second
-)
+const requestTimeout = 5 * time.Second
+
+func newTestServer(tb testing.TB) (*httptest.Server, string) {
+	tb.Helper()
+
+	repo := repository.NewMemoryRepository()
+
+	linkCache, err := cache.NewLRU(1000)
+	if err != nil {
+		tb.Fatal(err)
+	}
+
+	gen := generator.New()
+	svc := service.NewLinkService(repo, gen, linkCache)
+	h := handler.New(svc)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/links", h.CreateLink)
+	mux.HandleFunc("/links/", h.GetLink)
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	httpHandler := handler.LoggingMiddleware(
+		logger,
+		mux,
+	)
+
+	server := httptest.NewServer(httpHandler)
+
+	link, err := svc.Create(
+		tb.Context(),
+		"https://example.com",
+	)
+	if err != nil {
+		server.Close()
+		tb.Fatal(err)
+	}
+
+	return server, server.URL + "/links/" + link.ShortCode
+}
 
 func BenchmarkHTTPGet(b *testing.B) {
+	server, benchURL := newTestServer(b)
+	defer server.Close()
+
 	client := &http.Client{
 		Timeout: requestTimeout,
 	}
@@ -32,20 +80,14 @@ func BenchmarkHTTPGet(b *testing.B) {
 	}
 }
 
-func runLoadTest(t *testing.T, concurrency int, totalRequests int) {
+func runLoadTest(
+	t *testing.T,
+	client *http.Client,
+	benchURL string,
+	concurrency int,
+	totalRequests int,
+) {
 	t.Helper()
-
-	transport := &http.Transport{
-		MaxIdleConns:        concurrency,
-		MaxIdleConnsPerHost: concurrency,
-	}
-
-	client := &http.Client{
-		Transport: transport,
-		Timeout:   requestTimeout,
-	}
-
-	defer transport.CloseIdleConnections()
 
 	var (
 		wg      sync.WaitGroup
@@ -77,19 +119,7 @@ func runLoadTest(t *testing.T, concurrency int, totalRequests int) {
 			for range requestsForWorker {
 				requestStart := time.Now()
 
-				req, err := http.NewRequest(
-					http.MethodGet,
-					benchURL,
-					nil,
-				)
-				if err != nil {
-					errors.Add(1)
-					recordError(&errorMu, &firstError, err.Error())
-					recordLatency(&latencyMu, &latencies, time.Since(requestStart))
-					continue
-				}
-
-				resp, err := client.Do(req)
+				resp, err := client.Get(benchURL)
 				latency := time.Since(requestStart)
 
 				if err != nil {
@@ -99,6 +129,7 @@ func runLoadTest(t *testing.T, concurrency int, totalRequests int) {
 					continue
 				}
 
+				_, _ = io.Copy(io.Discard, resp.Body)
 				resp.Body.Close()
 
 				if resp.StatusCode != http.StatusOK {
@@ -106,7 +137,10 @@ func runLoadTest(t *testing.T, concurrency int, totalRequests int) {
 					recordError(
 						&errorMu,
 						&firstError,
-						fmt.Sprintf("unexpected HTTP status: %d", resp.StatusCode),
+						fmt.Sprintf(
+							"unexpected HTTP status: %d",
+							resp.StatusCode,
+						),
 					)
 				} else {
 					success.Add(1)
@@ -139,8 +173,8 @@ func runLoadTest(t *testing.T, concurrency int, totalRequests int) {
 
 	avgLatency := totalLatency / time.Duration(len(latencies))
 
-	p95Index := max(int(float64(len(latencies))*0.95)-1, 0)
-	p95Latency := latencies[p95Index]
+	p95Index := int(float64(len(latencies))*0.95) - 1
+	p95Index = max(p95Index, 0)
 
 	successful := success.Load()
 	failed := errors.Load()
@@ -170,7 +204,7 @@ func runLoadTest(t *testing.T, concurrency int, totalRequests int) {
 		rps,
 		successRPS,
 		avgLatency,
-		p95Latency,
+		latencies[p95Index],
 		errText,
 	)
 }
@@ -191,25 +225,44 @@ func recordError(
 	err string,
 ) {
 	mu.Lock()
+
 	if *firstError == "" {
 		*firstError = err
 	}
+
 	mu.Unlock()
 }
 
 func TestHTTPGetLoad(t *testing.T) {
-	resp, err := http.Get(benchURL)
-	if err != nil {
-		t.Skipf("server is not running: %v", err)
+	server, benchURL := newTestServer(t)
+	defer server.Close()
+
+	transport := &http.Transport{
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 100,
+		MaxConnsPerHost:     100,
 	}
-	resp.Body.Close()
+
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   requestTimeout,
+	}
+
+	defer transport.CloseIdleConnections()
+
+	const totalRequests = 3_000
 
 	for _, concurrency := range []int{10, 50, 100} {
 		t.Run(
 			fmt.Sprintf("concurrency_%d", concurrency),
 			func(t *testing.T) {
-				totalRequests := concurrency
-				runLoadTest(t, concurrency, totalRequests)
+				runLoadTest(
+					t,
+					client,
+					benchURL,
+					concurrency,
+					totalRequests,
+				)
 			},
 		)
 	}
