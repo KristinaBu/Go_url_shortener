@@ -3,10 +3,9 @@ package service
 import (
 	"context"
 	"errors"
-	"testing"
-
 	"github.com/KristinaBu/Go_url_shortener/internal/cache"
 	"github.com/KristinaBu/Go_url_shortener/internal/domain"
+	"testing"
 )
 
 type fakeRepository struct {

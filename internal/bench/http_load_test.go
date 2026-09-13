@@ -3,7 +3,7 @@ package bench
 import (
 	"fmt"
 	"net/http"
-	"sort"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -12,7 +12,6 @@ import (
 
 const (
 	benchURL       = "http://localhost:8080/links/NSILa0pd7S"
-	requestsPerRun = 10000
 	requestTimeout = 5 * time.Second
 )
 
@@ -23,7 +22,7 @@ func BenchmarkHTTPGet(b *testing.B) {
 
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		resp, err := client.Get(benchURL)
 		if err != nil {
 			b.Fatal(err)
@@ -49,34 +48,33 @@ func runLoadTest(t *testing.T, concurrency int, totalRequests int) {
 	defer transport.CloseIdleConnections()
 
 	var (
-		wg         sync.WaitGroup
-		success    atomic.Int64
-		errors     atomic.Int64
-		errorMu    sync.Mutex
-		firstError string
+		wg      sync.WaitGroup
+		success atomic.Int64
+		errors  atomic.Int64
 	)
 
 	latencies := make([]time.Duration, 0, totalRequests)
-	var latencyMu sync.Mutex
+
+	var (
+		latencyMu  sync.Mutex
+		errorMu    sync.Mutex
+		firstError string
+	)
 
 	baseRequests := totalRequests / concurrency
 	extraRequests := totalRequests % concurrency
 
 	start := time.Now()
 
-	for worker := 0; worker < concurrency; worker++ {
+	for worker := range concurrency {
 		requestsForWorker := baseRequests
 
 		if worker < extraRequests {
 			requestsForWorker++
 		}
 
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
-			for i := 0; i < requestsForWorker; i++ {
+		wg.Go(func() {
+			for range requestsForWorker {
 				requestStart := time.Now()
 
 				req, err := http.NewRequest(
@@ -86,19 +84,8 @@ func runLoadTest(t *testing.T, concurrency int, totalRequests int) {
 				)
 				if err != nil {
 					errors.Add(1)
-
-					errorMu.Lock()
-					if firstError == "" {
-						firstError = err.Error()
-					}
-					errorMu.Unlock()
-
-					latency := time.Since(requestStart)
-
-					latencyMu.Lock()
-					latencies = append(latencies, latency)
-					latencyMu.Unlock()
-
+					recordError(&errorMu, &firstError, err.Error())
+					recordLatency(&latencyMu, &latencies, time.Since(requestStart))
 					continue
 				}
 
@@ -107,17 +94,8 @@ func runLoadTest(t *testing.T, concurrency int, totalRequests int) {
 
 				if err != nil {
 					errors.Add(1)
-
-					errorMu.Lock()
-					if firstError == "" {
-						firstError = err.Error()
-					}
-					errorMu.Unlock()
-
-					latencyMu.Lock()
-					latencies = append(latencies, latency)
-					latencyMu.Unlock()
-
+					recordError(&errorMu, &firstError, err.Error())
+					recordLatency(&latencyMu, &latencies, latency)
 					continue
 				}
 
@@ -125,24 +103,18 @@ func runLoadTest(t *testing.T, concurrency int, totalRequests int) {
 
 				if resp.StatusCode != http.StatusOK {
 					errors.Add(1)
-
-					errorMu.Lock()
-					if firstError == "" {
-						firstError = fmt.Sprintf(
-							"unexpected HTTP status: %d",
-							resp.StatusCode,
-						)
-					}
-					errorMu.Unlock()
+					recordError(
+						&errorMu,
+						&firstError,
+						fmt.Sprintf("unexpected HTTP status: %d", resp.StatusCode),
+					)
 				} else {
 					success.Add(1)
 				}
 
-				latencyMu.Lock()
-				latencies = append(latencies, latency)
-				latencyMu.Unlock()
+				recordLatency(&latencyMu, &latencies, latency)
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -157,9 +129,7 @@ func runLoadTest(t *testing.T, concurrency int, totalRequests int) {
 		)
 	}
 
-	sort.Slice(latencies, func(i, j int) bool {
-		return latencies[i] < latencies[j]
-	})
+	slices.Sort(latencies)
 
 	var totalLatency time.Duration
 
@@ -169,14 +139,7 @@ func runLoadTest(t *testing.T, concurrency int, totalRequests int) {
 
 	avgLatency := totalLatency / time.Duration(len(latencies))
 
-	p95Index := int(float64(len(latencies))*0.95) - 1
-	if p95Index < 0 {
-		p95Index = 0
-	}
-	if p95Index >= len(latencies) {
-		p95Index = len(latencies) - 1
-	}
-
+	p95Index := max(int(float64(len(latencies))*0.95)-1, 0)
 	p95Latency := latencies[p95Index]
 
 	successful := success.Load()
@@ -210,6 +173,28 @@ func runLoadTest(t *testing.T, concurrency int, totalRequests int) {
 		p95Latency,
 		errText,
 	)
+}
+
+func recordLatency(
+	mu *sync.Mutex,
+	latencies *[]time.Duration,
+	latency time.Duration,
+) {
+	mu.Lock()
+	*latencies = append(*latencies, latency)
+	mu.Unlock()
+}
+
+func recordError(
+	mu *sync.Mutex,
+	firstError *string,
+	err string,
+) {
+	mu.Lock()
+	if *firstError == "" {
+		*firstError = err
+	}
+	mu.Unlock()
 }
 
 func TestHTTPGetLoad(t *testing.T) {

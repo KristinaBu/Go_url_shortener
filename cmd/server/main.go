@@ -4,13 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"github.com/KristinaBu/Go_url_shortener/internal/cache"
-	"github.com/KristinaBu/Go_url_shortener/internal/config"
-	"github.com/KristinaBu/Go_url_shortener/internal/generator"
-	"github.com/KristinaBu/Go_url_shortener/internal/handler"
-	"github.com/KristinaBu/Go_url_shortener/internal/logger"
-	"github.com/KristinaBu/Go_url_shortener/internal/repository"
-	"github.com/KristinaBu/Go_url_shortener/internal/service"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"log/slog"
 	"net/http"
@@ -18,6 +11,15 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/KristinaBu/Go_url_shortener/internal/cache"
+	"github.com/KristinaBu/Go_url_shortener/internal/config"
+	"github.com/KristinaBu/Go_url_shortener/internal/handler"
+	"github.com/KristinaBu/Go_url_shortener/internal/repository"
+	"github.com/KristinaBu/Go_url_shortener/internal/service"
+	"github.com/KristinaBu/Go_url_shortener/pkg/generator"
+	"github.com/KristinaBu/Go_url_shortener/pkg/logger"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 func main() {
@@ -87,7 +89,11 @@ func main() {
 	}
 
 	gen := generator.New()
-	svc := service.NewLinkService(repo, gen, linkCache)
+	svc := service.NewLinkService(
+		repo,
+		gen,
+		linkCache,
+	)
 	h := handler.New(svc)
 
 	mux := http.NewServeMux()
@@ -103,10 +109,10 @@ func main() {
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           httpHandler,
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      10 * time.Second,
-		IdleTimeout:       60 * time.Second,
+		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
+		ReadTimeout:       cfg.ReadTimeout,
+		WriteTimeout:      cfg.WriteTimeout,
+		IdleTimeout:       cfg.IdleTimeout,
 	}
 
 	stop := make(chan os.Signal, 1)

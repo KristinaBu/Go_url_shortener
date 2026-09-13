@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"time"
 )
 
 const (
@@ -15,11 +16,15 @@ const (
 )
 
 type Config struct {
-	HTTPAddr  string
-	Storage   string
-	LogOutput string
-	Database  string
-	CacheSize int
+	HTTPAddr          string
+	Storage           string
+	LogOutput         string
+	Database          string
+	CacheSize         int
+	ReadHeaderTimeout time.Duration
+	ReadTimeout       time.Duration
+	WriteTimeout      time.Duration
+	IdleTimeout       time.Duration
 }
 
 type nopWriteCloser struct {
@@ -55,10 +60,39 @@ func Parse() (Config, error) {
 		"PostgreSQL connection",
 	)
 
+	cacheSizeDefault, err := getEnvInt("CACHE_SIZE", defaultCacheSize)
+	if err != nil {
+		return Config{}, err
+	}
+
 	cacheSize := flag.Int(
 		"cache-size",
-		getEnvInt("CACHE_SIZE", defaultCacheSize),
+		cacheSizeDefault,
 		"LRU cache capacity",
+	)
+
+	readHeaderTimeout := flag.Duration(
+		"read-header-timeout",
+		5*time.Second,
+		"maximum time to read request headers",
+	)
+
+	readTimeout := flag.Duration(
+		"read-timeout",
+		10*time.Second,
+		"maximum duration for reading the request",
+	)
+
+	writeTimeout := flag.Duration(
+		"write-timeout",
+		10*time.Second,
+		"maximum duration before timing out writes",
+	)
+
+	idleTimeout := flag.Duration(
+		"idle-timeout",
+		60*time.Second,
+		"maximum amount of time to wait for the next request",
 	)
 
 	flag.Parse()
@@ -83,11 +117,15 @@ func Parse() (Config, error) {
 	}
 
 	return Config{
-		HTTPAddr:  *httpAddr,
-		Storage:   *storage,
-		LogOutput: *logOutput,
-		Database:  *database,
-		CacheSize: *cacheSize,
+		HTTPAddr:          *httpAddr,
+		Storage:           *storage,
+		LogOutput:         *logOutput,
+		Database:          *database,
+		CacheSize:         *cacheSize,
+		ReadHeaderTimeout: *readHeaderTimeout,
+		ReadTimeout:       *readTimeout,
+		WriteTimeout:      *writeTimeout,
+		IdleTimeout:       *idleTimeout,
 	}, nil
 }
 
@@ -100,18 +138,22 @@ func getEnv(key, fallback string) string {
 	return value
 }
 
-func getEnvInt(key string, fallback int) int {
+func getEnvInt(key string, fallback int) (int, error) {
 	value := os.Getenv(key)
 	if value == "" {
-		return fallback
+		return fallback, nil
 	}
 
 	result, err := strconv.Atoi(value)
 	if err != nil {
-		return fallback
+		return 0, fmt.Errorf(
+			"%s must be an integer: %w",
+			key,
+			err,
+		)
 	}
 
-	return result
+	return result, nil
 }
 
 func OpenLogOutput(path string) (io.WriteCloser, error) {

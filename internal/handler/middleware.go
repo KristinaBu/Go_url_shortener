@@ -1,10 +1,11 @@
 package handler
 
 import (
-	"github.com/KristinaBu/Go_url_shortener/internal/requestid"
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/KristinaBu/Go_url_shortener/pkg/requestid"
 )
 
 func LoggingMiddleware(
