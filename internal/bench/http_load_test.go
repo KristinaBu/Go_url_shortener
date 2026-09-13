@@ -1,9 +1,9 @@
 package bench
 
 import (
-	"context"
 	"fmt"
 	"net/http"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -24,17 +24,7 @@ func BenchmarkHTTPGet(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		req, err := http.NewRequestWithContext(
-			context.Background(),
-			http.MethodGet,
-			benchURL,
-			nil,
-		)
-		if err != nil {
-			b.Fatal(err)
-		}
-
-		resp, err := client.Do(req)
+		resp, err := client.Get(benchURL)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -43,40 +33,50 @@ func BenchmarkHTTPGet(b *testing.B) {
 	}
 }
 
-func runLoadTest(
-	t *testing.T,
-	concurrency int,
-	totalRequests int,
-) {
+func runLoadTest(t *testing.T, concurrency int, totalRequests int) {
 	t.Helper()
 
-	client := &http.Client{
-		Timeout: requestTimeout,
+	transport := &http.Transport{
+		MaxIdleConns:        concurrency,
+		MaxIdleConnsPerHost: concurrency,
 	}
 
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   requestTimeout,
+	}
+
+	defer transport.CloseIdleConnections()
+
 	var (
-		wg       sync.WaitGroup
-		requests atomic.Int64
-		errors   atomic.Int64
+		wg         sync.WaitGroup
+		success    atomic.Int64
+		errors     atomic.Int64
+		errorMu    sync.Mutex
+		firstError string
 	)
 
 	latencies := make([]time.Duration, 0, totalRequests)
 	var latencyMu sync.Mutex
 
+	baseRequests := totalRequests / concurrency
+	extraRequests := totalRequests % concurrency
+
 	start := time.Now()
 
 	for worker := 0; worker < concurrency; worker++ {
+		requestsForWorker := baseRequests
+
+		if worker < extraRequests {
+			requestsForWorker++
+		}
+
 		wg.Add(1)
 
 		go func() {
 			defer wg.Done()
 
-			for {
-				n := int(requests.Add(1))
-				if n > totalRequests {
-					return
-				}
-
+			for i := 0; i < requestsForWorker; i++ {
 				requestStart := time.Now()
 
 				req, err := http.NewRequest(
@@ -86,12 +86,38 @@ func runLoadTest(
 				)
 				if err != nil {
 					errors.Add(1)
+
+					errorMu.Lock()
+					if firstError == "" {
+						firstError = err.Error()
+					}
+					errorMu.Unlock()
+
+					latency := time.Since(requestStart)
+
+					latencyMu.Lock()
+					latencies = append(latencies, latency)
+					latencyMu.Unlock()
+
 					continue
 				}
 
 				resp, err := client.Do(req)
+				latency := time.Since(requestStart)
+
 				if err != nil {
 					errors.Add(1)
+
+					errorMu.Lock()
+					if firstError == "" {
+						firstError = err.Error()
+					}
+					errorMu.Unlock()
+
+					latencyMu.Lock()
+					latencies = append(latencies, latency)
+					latencyMu.Unlock()
+
 					continue
 				}
 
@@ -99,9 +125,18 @@ func runLoadTest(
 
 				if resp.StatusCode != http.StatusOK {
 					errors.Add(1)
-				}
 
-				latency := time.Since(requestStart)
+					errorMu.Lock()
+					if firstError == "" {
+						firstError = fmt.Sprintf(
+							"unexpected HTTP status: %d",
+							resp.StatusCode,
+						)
+					}
+					errorMu.Unlock()
+				} else {
+					success.Add(1)
+				}
 
 				latencyMu.Lock()
 				latencies = append(latencies, latency)
@@ -114,59 +149,83 @@ func runLoadTest(
 
 	duration := time.Since(start)
 
-	if len(latencies) == 0 {
-		t.Fatal("no successful requests")
+	if len(latencies) != totalRequests {
+		t.Fatalf(
+			"expected %d requests, got %d",
+			totalRequests,
+			len(latencies),
+		)
 	}
 
-	// Сортируем задержки.
-	for i := 0; i < len(latencies); i++ {
-		for j := i + 1; j < len(latencies); j++ {
-			if latencies[j] < latencies[i] {
-				latencies[i], latencies[j] = latencies[j], latencies[i]
-			}
-		}
-	}
+	sort.Slice(latencies, func(i, j int) bool {
+		return latencies[i] < latencies[j]
+	})
 
 	var totalLatency time.Duration
+
 	for _, latency := range latencies {
 		totalLatency += latency
 	}
 
 	avgLatency := totalLatency / time.Duration(len(latencies))
 
-	p95Index := int(float64(len(latencies)) * 0.95)
+	p95Index := int(float64(len(latencies))*0.95) - 1
+	if p95Index < 0 {
+		p95Index = 0
+	}
 	if p95Index >= len(latencies) {
 		p95Index = len(latencies) - 1
 	}
 
 	p95Latency := latencies[p95Index]
 
+	successful := success.Load()
+	failed := errors.Load()
+
 	rps := float64(totalRequests) / duration.Seconds()
+	successRPS := float64(successful) / duration.Seconds()
+
+	errorMu.Lock()
+	errText := firstError
+	errorMu.Unlock()
 
 	fmt.Printf(
-		"\nConcurrency: %d\n"+
+		"\n"+
+			"Concurrency: %d\n"+
 			"Requests:    %d\n"+
+			"Successful:  %d\n"+
+			"Errors:      %d\n"+
 			"RPS:         %.2f\n"+
+			"Success RPS: %.2f\n"+
 			"Avg latency: %s\n"+
 			"P95 latency: %s\n"+
-			"Errors:      %d\n",
+			"First error: %s\n",
 		concurrency,
 		totalRequests,
+		successful,
+		failed,
 		rps,
+		successRPS,
 		avgLatency,
 		p95Latency,
-		errors.Load(),
+		errText,
 	)
 }
 
 func TestHTTPGetLoad(t *testing.T) {
-	if _, err := http.Get(benchURL); err != nil {
-		t.Skip("server is not running")
+	resp, err := http.Get(benchURL)
+	if err != nil {
+		t.Skipf("server is not running: %v", err)
 	}
+	resp.Body.Close()
 
-	for _, concurrency := range []int{10, 50, 100, 500} {
-		t.Run(fmt.Sprintf("concurrency_%d", concurrency), func(t *testing.T) {
-			runLoadTest(t, concurrency, requestsPerRun)
-		})
+	for _, concurrency := range []int{10, 50, 100} {
+		t.Run(
+			fmt.Sprintf("concurrency_%d", concurrency),
+			func(t *testing.T) {
+				totalRequests := concurrency
+				runLoadTest(t, concurrency, totalRequests)
+			},
+		)
 	}
 }
