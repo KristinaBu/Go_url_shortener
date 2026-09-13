@@ -1,0 +1,150 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"github.com/KristinaBu/Go_url_shortener/internal/config"
+	"github.com/KristinaBu/Go_url_shortener/internal/generator"
+	"github.com/KristinaBu/Go_url_shortener/internal/handler"
+	"github.com/KristinaBu/Go_url_shortener/internal/logger"
+	"github.com/KristinaBu/Go_url_shortener/internal/repository"
+	"github.com/KristinaBu/Go_url_shortener/internal/service"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+)
+
+func main() {
+	cfg, err := config.Parse()
+	if err != nil {
+		slog.Error("failed to parse config", slog.Any("error", err))
+		os.Exit(1)
+	}
+
+	logOutput, err := config.OpenLogOutput(cfg.LogOutput)
+	if err != nil {
+		slog.Error(
+			"failed to open log output",
+			slog.Any("error", err),
+		)
+		os.Exit(1)
+	}
+
+	if logOutput != os.Stdout {
+		defer logOutput.Close()
+	}
+
+	appLogger := logger.New(logOutput)
+
+	var (
+		repo service.LinkRepository
+		db   *sql.DB
+	)
+
+	switch cfg.Storage {
+	case config.StorageMemory:
+		repo = repository.NewMemoryRepository()
+
+	case config.StoragePostgres:
+		db, err = sql.Open("pgx", cfg.Database)
+		if err != nil {
+			appLogger.Error(
+				"failed to open database",
+				slog.Any("error", err),
+			)
+			os.Exit(1)
+		}
+
+		defer db.Close()
+
+		ctx, cancel := context.WithTimeout(
+			context.Background(),
+			5*time.Second,
+		)
+		defer cancel()
+
+		if err := db.PingContext(ctx); err != nil {
+			appLogger.Error(
+				"failed to connect to database",
+				slog.Any("error", err),
+			)
+			os.Exit(1)
+		}
+
+		repo = repository.NewPostgresRepository(db)
+	}
+
+	gen := generator.New()
+	svc := service.NewLinkService(repo, gen)
+	h := handler.New(svc)
+
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/links", h.CreateLink)
+	mux.HandleFunc("/links/", h.GetLink)
+
+	httpHandler := handler.LoggingMiddleware(
+		appLogger,
+		mux,
+	)
+
+	server := &http.Server{
+		Addr:              cfg.HTTPAddr,
+		Handler:           httpHandler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+
+	stop := make(chan os.Signal, 1)
+
+	signal.Notify(
+		stop,
+		os.Interrupt,
+		syscall.SIGTERM,
+	)
+	defer signal.Stop(stop)
+
+	go func() {
+		<-stop
+
+		appLogger.Info("shutting down server")
+
+		ctx, cancel := context.WithTimeout(
+			context.Background(),
+			5*time.Second,
+		)
+		defer cancel()
+
+		if err := server.Shutdown(ctx); err != nil {
+			appLogger.Error(
+				"server shutdown failed",
+				slog.Any("error", err),
+			)
+		}
+	}()
+
+	appLogger.Info(
+		"server started",
+		slog.String("addr", cfg.HTTPAddr),
+		slog.String("storage", cfg.Storage),
+	)
+
+	if err := server.ListenAndServe(); err != nil &&
+		!errors.Is(err, http.ErrServerClosed) {
+		appLogger.Error(
+			"server failed",
+			slog.Any("error", err),
+		)
+
+		os.Exit(1)
+	}
+
+	appLogger.Info("server stopped")
+}
