@@ -3,12 +3,15 @@ package config
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
+	"strconv"
 )
 
 const (
-	StorageMemory   = "memory"
-	StoragePostgres = "postgres"
+	StorageMemory    = "memory"
+	StoragePostgres  = "postgres"
+	defaultCacheSize = 1000
 )
 
 type Config struct {
@@ -16,6 +19,15 @@ type Config struct {
 	Storage   string
 	LogOutput string
 	Database  string
+	CacheSize int
+}
+
+type nopWriteCloser struct {
+	io.Writer
+}
+
+func (nopWriteCloser) Close() error {
+	return nil
 }
 
 func Parse() (Config, error) {
@@ -43,6 +55,12 @@ func Parse() (Config, error) {
 		"PostgreSQL connection",
 	)
 
+	cacheSize := flag.Int(
+		"cache-size",
+		getEnvInt("CACHE_SIZE", defaultCacheSize),
+		"LRU cache capacity",
+	)
+
 	flag.Parse()
 
 	if *storage != StorageMemory && *storage != StoragePostgres {
@@ -58,11 +76,18 @@ func Parse() (Config, error) {
 		)
 	}
 
+	if *cacheSize <= 0 {
+		return Config{}, fmt.Errorf(
+			"cache size must be greater than zero",
+		)
+	}
+
 	return Config{
 		HTTPAddr:  *httpAddr,
 		Storage:   *storage,
 		LogOutput: *logOutput,
 		Database:  *database,
+		CacheSize: *cacheSize,
 	}, nil
 }
 
@@ -75,9 +100,23 @@ func getEnv(key, fallback string) string {
 	return value
 }
 
-func OpenLogOutput(path string) (*os.File, error) {
+func getEnvInt(key string, fallback int) int {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+
+	result, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+
+	return result
+}
+
+func OpenLogOutput(path string) (io.WriteCloser, error) {
 	if path == "stdout" {
-		return os.Stdout, nil
+		return nopWriteCloser{Writer: os.Stdout}, nil
 	}
 
 	return os.OpenFile(

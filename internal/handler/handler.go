@@ -10,6 +10,8 @@ import (
 	"strings"
 )
 
+const prefix = "/links/"
+
 type Handler struct {
 	service *service.LinkService
 }
@@ -75,7 +77,7 @@ func (h *Handler) CreateLink(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := createLinkResponse{
-		ShortURL: "/links/" + link.ShortCode,
+		ShortURL: prefix + link.ShortCode,
 	}
 
 	writeJSON(w, http.StatusCreated, response)
@@ -86,8 +88,6 @@ func (h *Handler) GetLink(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-
-	const prefix = "/links/"
 
 	if !strings.HasPrefix(r.URL.Path, prefix) {
 		writeError(w, http.StatusNotFound, "link not found")

@@ -4,32 +4,33 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/KristinaBu/Go_url_shortener/internal/cache"
 	"github.com/KristinaBu/Go_url_shortener/internal/domain"
+	"github.com/KristinaBu/Go_url_shortener/internal/repository"
 	"net/url"
 )
 
-type LinkRepository interface {
-	FindByURL(ctx context.Context, originalURL string) (domain.Link, error)
-	FindByCode(ctx context.Context, shortCode string) (domain.Link, error)
-	Create(ctx context.Context, link domain.Link) error
-}
+const maxGenerationAttempts = 10
 
 type CodeGenerator interface {
 	Generate() (string, error)
 }
 
 type LinkService struct {
-	repository LinkRepository
+	repository repository.LinkRepository
 	generator  CodeGenerator
+	cache      cache.LinkCache
 }
 
 func NewLinkService(
-	repository LinkRepository,
+	repository repository.LinkRepository,
 	generator CodeGenerator,
+	cache cache.LinkCache,
 ) *LinkService {
 	return &LinkService{
 		repository: repository,
 		generator:  generator,
+		cache:      cache,
 	}
 }
 
@@ -50,12 +51,7 @@ func (s *LinkService) Create(
 		return domain.Link{}, err
 	}
 
-	const (
-		MaxURLLength          = 2048
-		MaxGenerationAttempts = 10
-	)
-
-	for attempt := 0; attempt < MaxGenerationAttempts; attempt++ {
+	for attempt := 0; attempt < maxGenerationAttempts; attempt++ {
 		shortCode, err := s.generator.Generate()
 		if err != nil {
 			return domain.Link{}, err
@@ -68,6 +64,7 @@ func (s *LinkService) Create(
 
 		err = s.repository.Create(ctx, link)
 		if err == nil {
+			s.cache.Set(link.ShortCode, link)
 			return link, nil
 		}
 
@@ -81,6 +78,8 @@ func (s *LinkService) Create(
 				return domain.Link{}, findErr
 			}
 
+			s.cache.Set(existing.ShortCode, existing)
+
 			return existing, nil
 
 		default:
@@ -90,7 +89,7 @@ func (s *LinkService) Create(
 
 	return domain.Link{}, fmt.Errorf(
 		"failed to generate unique short code after %d attempts",
-		MaxGenerationAttempts,
+		maxGenerationAttempts,
 	)
 }
 
@@ -98,7 +97,18 @@ func (s *LinkService) Get(
 	ctx context.Context,
 	shortCode string,
 ) (domain.Link, error) {
-	return s.repository.FindByCode(ctx, shortCode)
+	if link, ok := s.cache.Get(shortCode); ok {
+		return link, nil
+	}
+
+	link, err := s.repository.FindByCode(ctx, shortCode)
+	if err != nil {
+		return domain.Link{}, err
+	}
+
+	s.cache.Set(shortCode, link)
+
+	return link, nil
 }
 
 func validateURL(rawURL string) error {

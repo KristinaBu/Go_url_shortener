@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/KristinaBu/Go_url_shortener/internal/cache"
 	"github.com/KristinaBu/Go_url_shortener/internal/config"
 	"github.com/KristinaBu/Go_url_shortener/internal/generator"
 	"github.com/KristinaBu/Go_url_shortener/internal/handler"
@@ -34,15 +35,21 @@ func main() {
 		)
 		os.Exit(1)
 	}
-
-	if logOutput != os.Stdout {
-		defer logOutput.Close()
-	}
+	defer logOutput.Close()
 
 	appLogger := logger.New(logOutput)
 
+	linkCache, err := cache.NewLRU(cfg.CacheSize)
+	if err != nil {
+		appLogger.Error(
+			"failed to create cache",
+			slog.Any("error", err),
+		)
+		os.Exit(1)
+	}
+
 	var (
-		repo service.LinkRepository
+		repo repository.LinkRepository
 		db   *sql.DB
 	)
 
@@ -80,7 +87,7 @@ func main() {
 	}
 
 	gen := generator.New()
-	svc := service.NewLinkService(repo, gen)
+	svc := service.NewLinkService(repo, gen, linkCache)
 	h := handler.New(svc)
 
 	mux := http.NewServeMux()
