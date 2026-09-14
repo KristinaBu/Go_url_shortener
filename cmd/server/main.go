@@ -43,7 +43,7 @@ func main() {
 		}),
 	)
 
-	linkCache, err := cache.NewLRU[string, domain.Link](config.DefaultCacheSize)
+	linkCache, err := cache.NewLRU[string, domain.Link](cfg.CacheSize)
 	if err != nil {
 		appLogger.Error(
 			"failed to create cache",
