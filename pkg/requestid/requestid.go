@@ -10,10 +10,7 @@ type contextKey struct{}
 
 func New() string {
 	buffer := make([]byte, 16)
-
-	if _, err := rand.Read(buffer); err != nil {
-		return "unknown"
-	}
+	_, _ = rand.Read(buffer)
 
 	return hex.EncodeToString(buffer)
 }

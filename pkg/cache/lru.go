@@ -3,68 +3,67 @@ package cache
 import (
 	"container/list"
 	"errors"
-	"github.com/KristinaBu/Go_url_shortener/internal/domain"
 	"sync"
 )
 
 var ErrInvalidCapacity = errors.New("cache capacity must be greater than zero")
 
-type entry struct {
-	key  string
-	link domain.Link
+type entry[K comparable, V any] struct {
+	key   K
+	value V
 }
 
-type LRUCache struct {
+type LRUCache[K comparable, V any] struct {
 	mu       sync.Mutex
 	capacity int
-	items    map[string]*list.Element
+	items    map[K]*list.Element
 	order    *list.List
 }
 
-func NewLRU(capacity int) (*LRUCache, error) {
+func NewLRU[K comparable, V any](capacity int) (*LRUCache[K, V], error) {
 	if capacity <= 0 {
 		return nil, ErrInvalidCapacity
 	}
 
-	return &LRUCache{
+	return &LRUCache[K, V]{
 		capacity: capacity,
-		items:    make(map[string]*list.Element, capacity),
+		items:    make(map[K]*list.Element, capacity),
 		order:    list.New(),
 	}, nil
 }
 
-func (c *LRUCache) Get(key string) (domain.Link, bool) {
+func (c *LRUCache[K, V]) Get(key K) (V, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	element, ok := c.items[key]
 	if !ok {
-		return domain.Link{}, false
+		var zero V
+		return zero, false
 	}
 
 	c.order.MoveToFront(element)
 
-	item := element.Value.(entry)
-
-	return item.link, true
+	item := element.Value.(entry[K, V])
+	return item.value, true
 }
 
-func (c *LRUCache) Set(key string, link domain.Link) {
+func (c *LRUCache[K, V]) Set(key K, value V) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if element, ok := c.items[key]; ok {
-		element.Value = entry{
-			key:  key,
-			link: link,
+		element.Value = entry[K, V]{
+			key:   key,
+			value: value,
 		}
 		c.order.MoveToFront(element)
 		return
 	}
 
-	element := c.order.PushFront(entry{
-		key:  key,
-		link: link,
+	element := c.order.PushFront(entry[K, V]{
+		key:   key,
+		value: value,
 	})
 
 	c.items[key] = element
@@ -78,8 +77,7 @@ func (c *LRUCache) Set(key string, link domain.Link) {
 		return
 	}
 
-	item := oldest.Value.(entry)
-
+	item := oldest.Value.(entry[K, V])
 	delete(c.items, item.key)
 	c.order.Remove(oldest)
 }

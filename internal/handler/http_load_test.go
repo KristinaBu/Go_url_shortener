@@ -1,7 +1,9 @@
-package bench
+package handler
 
 import (
 	"fmt"
+	"github.com/KristinaBu/Go_url_shortener/internal/domain"
+	"github.com/KristinaBu/Go_url_shortener/pkg/cache"
 	"io"
 	"log/slog"
 	"net/http"
@@ -12,8 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/KristinaBu/Go_url_shortener/internal/cache"
-	"github.com/KristinaBu/Go_url_shortener/internal/handler"
 	"github.com/KristinaBu/Go_url_shortener/internal/repository"
 	"github.com/KristinaBu/Go_url_shortener/internal/service"
 	"github.com/KristinaBu/Go_url_shortener/pkg/generator"
@@ -26,14 +26,14 @@ func newTestServer(tb testing.TB) (*httptest.Server, string) {
 
 	repo := repository.NewMemoryRepository()
 
-	linkCache, err := cache.NewLRU(1000)
+	linkCache, err := cache.NewLRU[string, domain.Link](1000)
 	if err != nil {
 		tb.Fatal(err)
 	}
 
 	gen := generator.New()
 	svc := service.NewLinkService(repo, gen, linkCache)
-	h := handler.New(svc)
+	h := New(svc)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/links", h.CreateLink)
@@ -41,7 +41,7 @@ func newTestServer(tb testing.TB) (*httptest.Server, string) {
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	httpHandler := handler.LoggingMiddleware(
+	httpHandler := LoggingMiddleware(
 		logger,
 		mux,
 	)

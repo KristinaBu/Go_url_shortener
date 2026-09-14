@@ -1,13 +1,14 @@
 package cache
 
 import (
-	"github.com/KristinaBu/Go_url_shortener/internal/domain"
 	"sync"
 	"testing"
+
+	"github.com/KristinaBu/Go_url_shortener/internal/domain"
 )
 
 func TestLRUCache_SetAndGet(t *testing.T) {
-	cache, err := NewLRU(2)
+	cache, err := NewLRU[string, domain.Link](2)
 	if err != nil {
 		t.Fatalf("NewLRU() error = %v", err)
 	}
@@ -30,7 +31,7 @@ func TestLRUCache_SetAndGet(t *testing.T) {
 }
 
 func TestLRUCache_EvictsLeastRecentlyUsed(t *testing.T) {
-	cache, err := NewLRU(2)
+	cache, err := NewLRU[string, domain.Link](2)
 	if err != nil {
 		t.Fatalf("NewLRU() error = %v", err)
 	}
@@ -38,7 +39,6 @@ func TestLRUCache_EvictsLeastRecentlyUsed(t *testing.T) {
 	cache.Set("first", domain.Link{ShortCode: "first"})
 	cache.Set("second", domain.Link{ShortCode: "second"})
 
-	// Make "first" recently used.
 	if _, ok := cache.Get("first"); !ok {
 		t.Fatal("first link was not found")
 	}
@@ -59,7 +59,7 @@ func TestLRUCache_EvictsLeastRecentlyUsed(t *testing.T) {
 }
 
 func TestLRUCache_ConcurrentAccess(t *testing.T) {
-	cache, err := NewLRU(100)
+	cache, err := NewLRU[string, domain.Link](100)
 	if err != nil {
 		t.Fatalf("NewLRU() error = %v", err)
 	}
@@ -86,7 +86,7 @@ func TestLRUCache_ConcurrentAccess(t *testing.T) {
 }
 
 func TestLRUCache_InvalidCapacity(t *testing.T) {
-	_, err := NewLRU(0)
+	_, err := NewLRU[string, domain.Link](0)
 	if err == nil {
 		t.Fatal("NewLRU(0) expected error")
 	}

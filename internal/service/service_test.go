@@ -3,24 +3,25 @@ package service
 import (
 	"context"
 	"errors"
-	"github.com/KristinaBu/Go_url_shortener/internal/cache"
-	"github.com/KristinaBu/Go_url_shortener/internal/domain"
 	"testing"
+
+	"github.com/KristinaBu/Go_url_shortener/internal/domain"
+	"github.com/KristinaBu/Go_url_shortener/pkg/cache"
 )
 
-type fakeRepository struct {
+type testRepository struct {
 	byURL  map[string]domain.Link
 	byCode map[string]domain.Link
 }
 
-func newFakeRepository() *fakeRepository {
-	return &fakeRepository{
+func newTestRepository() *testRepository {
+	return &testRepository{
 		byURL:  make(map[string]domain.Link),
 		byCode: make(map[string]domain.Link),
 	}
 }
 
-func (r *fakeRepository) FindByURL(
+func (r *testRepository) FindByURL(
 	_ context.Context,
 	originalURL string,
 ) (domain.Link, error) {
@@ -32,7 +33,7 @@ func (r *fakeRepository) FindByURL(
 	return link, nil
 }
 
-func (r *fakeRepository) FindByCode(
+func (r *testRepository) FindByCode(
 	_ context.Context,
 	shortCode string,
 ) (domain.Link, error) {
@@ -44,7 +45,7 @@ func (r *fakeRepository) FindByCode(
 	return link, nil
 }
 
-func (r *fakeRepository) Create(
+func (r *testRepository) Create(
 	_ context.Context,
 	link domain.Link,
 ) error {
@@ -62,12 +63,12 @@ func (r *fakeRepository) Create(
 	return nil
 }
 
-type fakeGenerator struct {
+type testGenerator struct {
 	codes []string
 	index int
 }
 
-func (g *fakeGenerator) Generate() (string, error) {
+func (g *testGenerator) Generate() (string, error) {
 	if g.index >= len(g.codes) {
 		return "", errors.New("no more codes")
 	}
@@ -78,22 +79,26 @@ func (g *fakeGenerator) Generate() (string, error) {
 	return code, nil
 }
 
-func newFakeCache() cache.LinkCache {
-	c, _ := cache.NewLRU(100)
+func newTestCache() cache.Cache[string, domain.Link] {
+	c, err := cache.NewLRU[string, domain.Link](100)
+	if err != nil {
+		panic(err)
+	}
+
 	return c
 }
 
 func TestLinkService_Create(t *testing.T) {
-	repo := newFakeRepository()
+	repo := newTestRepository()
 
-	generator := &fakeGenerator{
+	generator := &testGenerator{
 		codes: []string{"abc123_XYZ"},
 	}
 
 	service := NewLinkService(
 		repo,
 		generator,
-		newFakeCache(),
+		newTestCache(),
 	)
 
 	link, err := service.Create(
@@ -118,7 +123,7 @@ func TestLinkService_Create(t *testing.T) {
 }
 
 func TestLinkService_CreateSameURLReturnsExistingLink(t *testing.T) {
-	repo := newFakeRepository()
+	repo := newTestRepository()
 
 	existing := domain.Link{
 		ShortCode:   "abc123_XYZ",
@@ -128,14 +133,14 @@ func TestLinkService_CreateSameURLReturnsExistingLink(t *testing.T) {
 	repo.byURL[existing.OriginalURL] = existing
 	repo.byCode[existing.ShortCode] = existing
 
-	generator := &fakeGenerator{
+	generator := &testGenerator{
 		codes: []string{"should_not_be_used"},
 	}
 
 	service := NewLinkService(
 		repo,
 		generator,
-		newFakeCache(),
+		newTestCache(),
 	)
 
 	link, err := service.Create(
@@ -156,7 +161,7 @@ func TestLinkService_CreateSameURLReturnsExistingLink(t *testing.T) {
 }
 
 func TestLinkService_CreateRetriesOnCodeCollision(t *testing.T) {
-	repo := newFakeRepository()
+	repo := newTestRepository()
 
 	existing := domain.Link{
 		ShortCode:   "abc123_XYZ",
@@ -165,7 +170,7 @@ func TestLinkService_CreateRetriesOnCodeCollision(t *testing.T) {
 
 	repo.byCode[existing.ShortCode] = existing
 
-	generator := &fakeGenerator{
+	generator := &testGenerator{
 		codes: []string{
 			"abc123_XYZ",
 			"newCode_12",
@@ -175,7 +180,7 @@ func TestLinkService_CreateRetriesOnCodeCollision(t *testing.T) {
 	service := NewLinkService(
 		repo,
 		generator,
-		newFakeCache(),
+		newTestCache(),
 	)
 
 	link, err := service.Create(
@@ -200,7 +205,7 @@ func TestLinkService_CreateRetriesOnCodeCollision(t *testing.T) {
 }
 
 func TestLinkService_Get(t *testing.T) {
-	repo := newFakeRepository()
+	repo := newTestRepository()
 
 	link := domain.Link{
 		ShortCode:   "abc123_XYZ",
@@ -211,8 +216,8 @@ func TestLinkService_Get(t *testing.T) {
 
 	service := NewLinkService(
 		repo,
-		&fakeGenerator{},
-		newFakeCache(),
+		&testGenerator{},
+		newTestCache(),
 	)
 
 	got, err := service.Get(

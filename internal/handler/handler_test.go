@@ -6,41 +6,41 @@ import (
 	"github.com/KristinaBu/Go_url_shortener/internal/service"
 )
 
-type fakeRepository struct {
+type testRepository struct {
 	byURL  map[string]domain.Link
 	byCode map[string]domain.Link
 }
 
-type fakeCache struct {
+type testCache struct {
 	items map[string]domain.Link
 }
 
-func newFakeCache() *fakeCache {
-	return &fakeCache{
+func newTestCache() *testCache {
+	return &testCache{
 		items: make(map[string]domain.Link),
 	}
 }
 
-func (c *fakeCache) Get(key string) (domain.Link, bool) {
+func (c *testCache) Get(key string) (domain.Link, bool) {
 	link, ok := c.items[key]
 	return link, ok
 }
 
-func (c *fakeCache) Set(key string, link domain.Link) {
+func (c *testCache) Set(key string, link domain.Link) {
 	c.items[key] = link
 }
 
 func newTestHandler() *Handler {
-	repo := &fakeRepository{
+	repo := &testRepository{
 		byURL:  make(map[string]domain.Link),
 		byCode: make(map[string]domain.Link),
 	}
 
-	generator := &fakeGenerator{
+	generator := &testGenerator{
 		code: "abc123_XYZ",
 	}
 
-	cache := newFakeCache()
+	cache := newTestCache()
 
 	svc := service.NewLinkService(
 		repo,
@@ -51,15 +51,15 @@ func newTestHandler() *Handler {
 	return New(svc)
 }
 
-type fakeGenerator struct {
+type testGenerator struct {
 	code string
 }
 
-func (g *fakeGenerator) Generate() (string, error) {
+func (g *testGenerator) Generate() (string, error) {
 	return g.code, nil
 }
 
-func (r *fakeRepository) Create(_ context.Context, link domain.Link) error {
+func (r *testRepository) Create(_ context.Context, link domain.Link) error {
 	if _, exists := r.byURL[link.OriginalURL]; exists {
 		return domain.ErrURLAlreadyExists
 	}
@@ -74,7 +74,7 @@ func (r *fakeRepository) Create(_ context.Context, link domain.Link) error {
 	return nil
 }
 
-func (r *fakeRepository) FindByURL(
+func (r *testRepository) FindByURL(
 	_ context.Context,
 	url string,
 ) (domain.Link, error) {
@@ -86,7 +86,7 @@ func (r *fakeRepository) FindByURL(
 	return link, nil
 }
 
-func (r *fakeRepository) FindByCode(
+func (r *testRepository) FindByCode(
 	_ context.Context,
 	code string,
 ) (domain.Link, error) {

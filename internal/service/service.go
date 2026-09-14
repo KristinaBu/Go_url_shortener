@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/KristinaBu/Go_url_shortener/internal/cache"
 	"github.com/KristinaBu/Go_url_shortener/internal/domain"
 	"github.com/KristinaBu/Go_url_shortener/internal/repository"
+	"github.com/KristinaBu/Go_url_shortener/pkg/cache"
 	"net/url"
 )
 
@@ -19,13 +19,13 @@ type CodeGenerator interface {
 type LinkService struct {
 	repository repository.LinkRepository
 	generator  CodeGenerator
-	cache      cache.LinkCache
+	cache      cache.Cache[string, domain.Link]
 }
 
 func NewLinkService(
 	repository repository.LinkRepository,
 	generator CodeGenerator,
-	cache cache.LinkCache,
+	cache cache.Cache[string, domain.Link],
 ) *LinkService {
 	return &LinkService{
 		repository: repository,
@@ -51,7 +51,7 @@ func (s *LinkService) Create(
 		return domain.Link{}, err
 	}
 
-	for attempt := 0; attempt < maxGenerationAttempts; attempt++ {
+	for range maxGenerationAttempts {
 		shortCode, err := s.generator.Generate()
 		if err != nil {
 			return domain.Link{}, err

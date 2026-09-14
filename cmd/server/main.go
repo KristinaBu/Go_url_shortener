@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/KristinaBu/Go_url_shortener/internal/domain"
+	"github.com/KristinaBu/Go_url_shortener/pkg/cache"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"log/slog"
 	"net/http"
@@ -12,14 +14,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/KristinaBu/Go_url_shortener/internal/cache"
 	"github.com/KristinaBu/Go_url_shortener/internal/config"
 	"github.com/KristinaBu/Go_url_shortener/internal/handler"
 	"github.com/KristinaBu/Go_url_shortener/internal/repository"
 	"github.com/KristinaBu/Go_url_shortener/internal/service"
 	"github.com/KristinaBu/Go_url_shortener/pkg/generator"
-	"github.com/KristinaBu/Go_url_shortener/pkg/logger"
-	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 func main() {
@@ -39,9 +38,13 @@ func main() {
 	}
 	defer logOutput.Close()
 
-	appLogger := logger.New(logOutput)
+	appLogger := slog.New(
+		slog.NewJSONHandler(logOutput, &slog.HandlerOptions{
+			Level: slog.LevelInfo,
+		}),
+	)
 
-	linkCache, err := cache.NewLRU(cfg.CacheSize)
+	linkCache, err := cache.NewLRU[string, domain.Link](1000)
 	if err != nil {
 		appLogger.Error(
 			"failed to create cache",
