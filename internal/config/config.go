@@ -12,7 +12,7 @@ import (
 const (
 	StorageMemory    = "memory"
 	StoragePostgres  = "postgres"
-	defaultCacheSize = 1000
+	DefaultCacheSize = 1000
 )
 
 type Config struct {
@@ -60,7 +60,7 @@ func Parse() (Config, error) {
 		"PostgreSQL connection",
 	)
 
-	cacheSizeDefault, err := getEnvInt("CACHE_SIZE", defaultCacheSize)
+	cacheSizeDefault, err := getEnvInt("CACHE_SIZE", DefaultCacheSize)
 	if err != nil {
 		return Config{}, err
 	}

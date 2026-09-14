@@ -21,10 +21,10 @@ func New() *Generator {
 
 func (g *Generator) Generate() (string, error) {
 	result := make([]byte, CodeLength)
-	max := big.NewInt(int64(len(Alphabet)))
+	maxInt := big.NewInt(int64(len(Alphabet)))
 
 	for i := range result {
-		n, err := rand.Int(rand.Reader, max)
+		n, err := rand.Int(rand.Reader, maxInt)
 		if err != nil {
 			return "", ErrGenerationFailed
 		}

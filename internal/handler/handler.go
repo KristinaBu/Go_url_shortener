@@ -1,22 +1,27 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
-	"github.com/KristinaBu/Go_url_shortener/internal/domain"
-	"github.com/KristinaBu/Go_url_shortener/internal/service"
-	"io"
 	"net/http"
 	"strings"
+
+	"github.com/KristinaBu/Go_url_shortener/internal/domain"
 )
 
 const prefix = "/links/"
 
-type Handler struct {
-	service *service.LinkService
+type LinkService interface {
+	Create(ctx context.Context, originalURL string) (domain.Link, error)
+	Get(ctx context.Context, shortCode string) (domain.Link, error)
 }
 
-func New(svc *service.LinkService) *Handler {
+type Handler struct {
+	service LinkService
+}
+
+func New(svc LinkService) *Handler {
 	return &Handler{
 		service: svc,
 	}
@@ -54,12 +59,6 @@ func (h *Handler) CreateLink(w http.ResponseWriter, r *http.Request) {
 
 	if err := decoder.Decode(&request); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
-		return
-	}
-
-	var extra any
-	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		writeError(w, http.StatusBadRequest, "request body must contain a single JSON object")
 		return
 	}
 

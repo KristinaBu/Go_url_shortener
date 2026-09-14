@@ -91,15 +91,14 @@ func newTestCache() cache.Cache[string, domain.Link] {
 func TestLinkService_Create(t *testing.T) {
 	repo := newTestRepository()
 
-	generator := &testGenerator{
-		codes: []string{"abc123_XYZ"},
-	}
-
 	service := NewLinkService(
 		repo,
-		generator,
 		newTestCache(),
 	)
+
+	service.generator = &testGenerator{
+		codes: []string{"abc123_XYZ"},
+	}
 
 	link, err := service.Create(
 		context.Background(),
@@ -110,7 +109,11 @@ func TestLinkService_Create(t *testing.T) {
 	}
 
 	if link.ShortCode != "abc123_XYZ" {
-		t.Fatalf("ShortCode = %q, want %q", link.ShortCode, "abc123_XYZ")
+		t.Fatalf(
+			"ShortCode = %q, want %q",
+			link.ShortCode,
+			"abc123_XYZ",
+		)
 	}
 
 	if link.OriginalURL != "https://example.com" {
@@ -133,15 +136,16 @@ func TestLinkService_CreateSameURLReturnsExistingLink(t *testing.T) {
 	repo.byURL[existing.OriginalURL] = existing
 	repo.byCode[existing.ShortCode] = existing
 
-	generator := &testGenerator{
+	service := NewLinkService(
+		repo,
+		newTestCache(),
+	)
+
+	testGenerator := &testGenerator{
 		codes: []string{"should_not_be_used"},
 	}
 
-	service := NewLinkService(
-		repo,
-		generator,
-		newTestCache(),
-	)
+	service.generator = testGenerator
 
 	link, err := service.Create(
 		context.Background(),
@@ -152,11 +156,18 @@ func TestLinkService_CreateSameURLReturnsExistingLink(t *testing.T) {
 	}
 
 	if link != existing {
-		t.Fatalf("Create() = %+v, want %+v", link, existing)
+		t.Fatalf(
+			"Create() = %+v, want %+v",
+			link,
+			existing,
+		)
 	}
 
-	if generator.index != 0 {
-		t.Fatalf("generator calls = %d, want 0", generator.index)
+	if testGenerator.index != 0 {
+		t.Fatalf(
+			"generator calls = %d, want 0",
+			testGenerator.index,
+		)
 	}
 }
 
@@ -170,18 +181,19 @@ func TestLinkService_CreateRetriesOnCodeCollision(t *testing.T) {
 
 	repo.byCode[existing.ShortCode] = existing
 
-	generator := &testGenerator{
+	service := NewLinkService(
+		repo,
+		newTestCache(),
+	)
+
+	testGenerator := &testGenerator{
 		codes: []string{
 			"abc123_XYZ",
 			"newCode_12",
 		},
 	}
 
-	service := NewLinkService(
-		repo,
-		generator,
-		newTestCache(),
-	)
+	service.generator = testGenerator
 
 	link, err := service.Create(
 		context.Background(),
@@ -199,8 +211,11 @@ func TestLinkService_CreateRetriesOnCodeCollision(t *testing.T) {
 		)
 	}
 
-	if generator.index != 2 {
-		t.Fatalf("generator calls = %d, want 2", generator.index)
+	if testGenerator.index != 2 {
+		t.Fatalf(
+			"generator calls = %d, want 2",
+			testGenerator.index,
+		)
 	}
 }
 
@@ -216,7 +231,6 @@ func TestLinkService_Get(t *testing.T) {
 
 	service := NewLinkService(
 		repo,
-		&testGenerator{},
 		newTestCache(),
 	)
 
@@ -229,6 +243,10 @@ func TestLinkService_Get(t *testing.T) {
 	}
 
 	if got != link {
-		t.Fatalf("Get() = %+v, want %+v", got, link)
+		t.Fatalf(
+			"Get() = %+v, want %+v",
+			got,
+			link,
+		)
 	}
 }

@@ -2,8 +2,6 @@ package handler
 
 import (
 	"fmt"
-	"github.com/KristinaBu/Go_url_shortener/internal/domain"
-	"github.com/KristinaBu/Go_url_shortener/pkg/cache"
 	"io"
 	"log/slog"
 	"net/http"
@@ -14,9 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KristinaBu/Go_url_shortener/internal/domain"
 	"github.com/KristinaBu/Go_url_shortener/internal/repository"
 	"github.com/KristinaBu/Go_url_shortener/internal/service"
-	"github.com/KristinaBu/Go_url_shortener/pkg/generator"
+	"github.com/KristinaBu/Go_url_shortener/pkg/cache"
 )
 
 const requestTimeout = 5 * time.Second
@@ -31,15 +30,20 @@ func newTestServer(tb testing.TB) (*httptest.Server, string) {
 		tb.Fatal(err)
 	}
 
-	gen := generator.New()
-	svc := service.NewLinkService(repo, gen, linkCache)
+	svc := service.NewLinkService(
+		repo,
+		linkCache,
+	)
+
 	h := New(svc)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/links", h.CreateLink)
 	mux.HandleFunc("/links/", h.GetLink)
 
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := slog.New(
+		slog.NewTextHandler(io.Discard, nil),
+	)
 
 	httpHandler := LoggingMiddleware(
 		logger,
@@ -124,8 +128,19 @@ func runLoadTest(
 
 				if err != nil {
 					errors.Add(1)
-					recordError(&errorMu, &firstError, err.Error())
-					recordLatency(&latencyMu, &latencies, latency)
+
+					recordError(
+						&errorMu,
+						&firstError,
+						err.Error(),
+					)
+
+					recordLatency(
+						&latencyMu,
+						&latencies,
+						latency,
+					)
+
 					continue
 				}
 
@@ -134,6 +149,7 @@ func runLoadTest(
 
 				if resp.StatusCode != http.StatusOK {
 					errors.Add(1)
+
 					recordError(
 						&errorMu,
 						&firstError,
@@ -146,7 +162,11 @@ func runLoadTest(
 					success.Add(1)
 				}
 
-				recordLatency(&latencyMu, &latencies, latency)
+				recordLatency(
+					&latencyMu,
+					&latencies,
+					latency,
+				)
 			}
 		})
 	}

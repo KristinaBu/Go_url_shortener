@@ -18,7 +18,6 @@ import (
 	"github.com/KristinaBu/Go_url_shortener/internal/handler"
 	"github.com/KristinaBu/Go_url_shortener/internal/repository"
 	"github.com/KristinaBu/Go_url_shortener/internal/service"
-	"github.com/KristinaBu/Go_url_shortener/pkg/generator"
 )
 
 func main() {
@@ -44,7 +43,7 @@ func main() {
 		}),
 	)
 
-	linkCache, err := cache.NewLRU[string, domain.Link](1000)
+	linkCache, err := cache.NewLRU[string, domain.Link](config.DefaultCacheSize)
 	if err != nil {
 		appLogger.Error(
 			"failed to create cache",
@@ -91,10 +90,8 @@ func main() {
 		repo = repository.NewPostgresRepository(db)
 	}
 
-	gen := generator.New()
 	svc := service.NewLinkService(
 		repo,
-		gen,
 		linkCache,
 	)
 	h := handler.New(svc)
