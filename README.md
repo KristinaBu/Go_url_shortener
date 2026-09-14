@@ -9,7 +9,7 @@ HTTP-сервис для сокращения ссылок на Go.
 In-memory:
 
 ```bash
-go run ./cmd/server -storage memory
+docker compose -f docker-compose.memory.yml up
 ```
 
 PostgreSQL:
