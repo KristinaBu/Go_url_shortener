@@ -270,7 +270,7 @@ func TestHTTPGetLoad(t *testing.T) {
 
 	defer transport.CloseIdleConnections()
 
-	const totalRequests = 3_000
+	const totalRequests = 100_000
 
 	for _, concurrency := range []int{10, 50, 100} {
 		t.Run(
