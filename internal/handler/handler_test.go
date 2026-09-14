@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"github.com/KristinaBu/Go_url_shortener/internal/domain"
-	"github.com/KristinaBu/Go_url_shortener/internal/service"
 )
 
 type testRepository struct {
@@ -28,27 +27,6 @@ func (c *testCache) Get(key string) (domain.Link, bool) {
 
 func (c *testCache) Set(key string, link domain.Link) {
 	c.items[key] = link
-}
-
-func newTestHandler() *Handler {
-	repo := &testRepository{
-		byURL:  make(map[string]domain.Link),
-		byCode: make(map[string]domain.Link),
-	}
-
-	generator := &testGenerator{
-		code: "abc123_XYZ",
-	}
-
-	cache := newTestCache()
-
-	svc := service.NewLinkService(
-		repo,
-		generator,
-		cache,
-	)
-
-	return New(svc)
 }
 
 type testGenerator struct {

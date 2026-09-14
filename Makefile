@@ -11,7 +11,7 @@ race:
 	go test -race ./...
 
 bench:
-	go test -run=^$ -bench=BenchmarkHTTPGet -benchmem ./internal/bench
+	go test -run=^$$ -bench=BenchmarkHTTPGet -benchmem ./internal/handler
 
 load-test:
-	go test -v ./internal/bench -run TestHTTPGetLoad
+	go test -v ./internal/handler -run TestHTTPGetLoad
