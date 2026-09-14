@@ -53,7 +53,7 @@ func main() {
 	}
 
 	var (
-		repo repository.LinkRepository
+		repo service.LinkRepository
 		db   *sql.DB
 	)
 
@@ -101,9 +101,8 @@ func main() {
 	mux.HandleFunc("/links", h.CreateLink)
 	mux.HandleFunc("/links/", h.GetLink)
 
-	httpHandler := handler.LoggingMiddleware(
-		appLogger,
-		mux,
+	httpHandler := handler.RequestIDMiddleware(
+		handler.LoggingMiddleware(appLogger, mux),
 	)
 
 	server := &http.Server{

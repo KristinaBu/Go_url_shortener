@@ -67,7 +67,6 @@ func (h *Handler) CreateLink(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, domain.ErrInvalidURL):
 			writeError(w, http.StatusBadRequest, "invalid URL")
-
 		default:
 			writeError(w, http.StatusInternalServerError, "internal server error")
 		}
@@ -105,7 +104,6 @@ func (h *Handler) GetLink(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, domain.ErrNotFound):
 			writeError(w, http.StatusNotFound, "link not found")
-
 		default:
 			writeError(w, http.StatusInternalServerError, "internal server error")
 		}

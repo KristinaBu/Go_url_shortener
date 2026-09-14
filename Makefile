@@ -1,5 +1,5 @@
-run:
-	go run ./cmd/server -storage memory
+run-memory:
+	docker compose -f docker-compose.memory.yml up
 
 run-postgres:
 	docker compose up -d
